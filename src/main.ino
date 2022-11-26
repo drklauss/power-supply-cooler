@@ -12,34 +12,83 @@
 #define KELVIN_K 273.15        // коэффициент перевода в Кельвины
 #define ACDC_PIN A1            // датчик температуры блока AC-DC
 #define DCDC_PIN A2            // датчик температуры блока DC-DC
-#define USBDC_PIN A3           // датчик температуры преобразователя USBDC
 #define TEMP_DANGER 60         // Температура, с которой начинает включаться вентилятор
-#define TEMP_DISABLE 45         // Температура, до которой вентилятор снижает обороты, а затем отключается
+#define TEMP_DISABLE 45        // Температура, до которой вентилятор снижает обороты, а затем отключается
 #define TEMP_UPD 3000          // Температура обновления показаний
 #define COOLER_PIN D9          // ШИМ сигнал на MOSFET
-float currentTemp; // текущее (максимальное) значение температуры 
-int sigPWM; // величина ШИМ-сигнала
+float currentTemp;             // текущее (максимальное) значение температуры
+int sigPWM;                    // величина ШИМ-сигнала
+char dotBot = char(161);
+char dotTop = char(223);
+char poses[4] = {dotBot, dotBot, dotBot, dotBot};
+char cur = dotBot;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 void setup()
 {
-  // Serial.begin(9600);
   pinMode(ACDC_PIN, INPUT);
   pinMode(DCDC_PIN, INPUT);
-  pinMode(USBDC_PIN, INPUT);
   pinMode(COOLER_PIN, OUTPUT);
-  // pinMode(LED_BUILTIN, OUTPUT);
   lcd.init();
-  // Пины D9 и D10 - задаем частоту PWM 16кГц чтоб не пищал кулер
+  // Пины D9 и D10 - задаем частоту PWM 16кГц, чтобы не пищал кулер
   TCCR1A = 0b00000001;
   TCCR1B = 0b00001010;
 }
 
 void loop()
 {
+  printWave();
   updateTemp();
   checkForDanger();
+}
+
+//
+void printWave()
+{
+  // star
+  static int starPos = 0;
+  static bool direct = true;
+  static unsigned long checkTime;
+  if (millis() - checkTime < 500)
+  {
+    return;
+  }
+
+  lcd.setCursor(12 + starPos, 0);
+
+  cur = poses[starPos];
+  if (cur == dotBot) 
+  {
+    cur = dotTop;
+  }
+  else
+  {
+    cur = dotBot;
+  }
+
+  poses[starPos] = cur;
+  lcd.print(cur);
+
+  if (direct)
+  {
+    starPos++;
+    if (starPos > 3)
+    {
+      starPos = 3;
+      direct = false;
+    }
+  }
+  else
+  {
+    starPos--;
+    if (starPos < 0)
+    {
+      starPos = 0;
+      direct = true;
+    }
+  }
+  checkTime = millis();
 }
 
 /**
@@ -51,7 +100,7 @@ void loop()
  * При снижении температуры менее TEMP_DANGER снижает обороты ниже 30% (т.к. кулер уже крутится это не проблема)
  * Обороты могут падать вплоть до 15% что соответствует уровню TEMP_DISABLE
  * При дальнейшем снижении температуры вентилятор отключается
- * 
+ *
  **/
 void checkForDanger()
 {
@@ -70,7 +119,8 @@ void checkForDanger()
     return;
   }
 
-  if (!isRunning){
+  if (!isRunning)
+  {
     return;
   }
   sigPWM = map(currentTemp, TEMP_DANGER, TEMP_DISABLE, 80, 40);
@@ -93,35 +143,35 @@ void updateTemp()
   {
     return;
   }
-  // обновить данные макс. температуры
+
   // температура
-  lcd.clear();
+  // lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("AC-DC: ");
+  lcd.setCursor(6, 0);
   float tempACDC = medianACDC(getTemp(ACDC_PIN, ACDC_RESISTANCE));
-  lcd.setCursor(2, 0);
   lcd.print(getFormatted(tempACDC));
-  lcd.print((char) 223);
-  lcd.setCursor(8, 0);
-  float tempDCDC = getTemp(DCDC_PIN, DCDC_RESISTANCE);
+  lcd.print((char)223);
+  lcd.setCursor(0, 1);
+  lcd.print("DC-DC: ");
+  lcd.setCursor(6, 1);
+  float tempDCDC = medianDCDC(getTemp(DCDC_PIN, DCDC_RESISTANCE));
   lcd.print(getFormatted(tempDCDC));
-  lcd.print((char) 223);
-  lcd.setCursor(2, 1);
-  float tempUSBDC = getTemp(USBDC_PIN, USBDC_RESISTANCE);
-  lcd.print(getFormatted(tempUSBDC));
-  lcd.print((char) 223);
+  lcd.print((char)223);
+
   // обороты
-  lcd.setCursor(8, 1);
+  lcd.setCursor(12, 1);
   if (sigPWM > 0)
   {
     lcd.print(getFormatted(sigPWM / 255.00 * 100));
     lcd.print("%");
-  } else{
+  }
+  else
+  {
     lcd.print("idle");
   }
-  currentTemp = tempUSBDC;
-  if (tempACDC > currentTemp)
-  {
-    currentTemp = tempACDC;
-  }
+  currentTemp = tempACDC;
+
   if (tempDCDC > currentTemp)
   {
     currentTemp = tempDCDC;
@@ -130,7 +180,7 @@ void updateTemp()
 }
 
 /**
- * Возвращает float отформатированный до одного знака после запятой 
+ * Возвращает float отформатированный до одного знака после запятой
  **/
 String getFormatted(float val)
 {
@@ -139,7 +189,6 @@ String getFormatted(float val)
 
   return outstr;
 }
-
 
 /**
  * Считывает и возвращает значение с запрошенного датчика
@@ -156,12 +205,6 @@ float getTemp(int pin, int int_resistance)
   steinhart += 1.0 / (NOMINAL_T + KELVIN_K); // + (1/To)
   steinhart = 1.0 / steinhart;               // Invert
   steinhart -= KELVIN_K;
-  // Serial.print("PIN=");
-  // Serial.print(pin);
-  // Serial.print(", R=");
-  // Serial.print(tr);
-  // Serial.print(", t=");
-  // Serial.println(steinhart);
 
   return steinhart;
 }
@@ -184,20 +227,6 @@ float medianACDC(float newVal)
  *  Возвращает значение измерений темепературы блока DC-DC, используя медианный фильтр на 3 значения со своим буфером
  **/
 float medianDCDC(float newVal)
-{
-  static float buf[3];
-  static byte count = 0;
-  buf[count] = newVal;
-  if (++count >= 3)
-    count = 0;
-
-  return getMedian(buf[0], buf[1], buf[2]);
-}
-
-/**
- *  Возвращает значение измерений темепературы блока USB-DC, используя медианный фильтр на 3 значения со своим буфером
- **/
-float medianUSBDC(int newVal)
 {
   static float buf[3];
   static byte count = 0;
